@@ -1,0 +1,293 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String         @id @default(uuid())
+  username      String         @unique
+  display_name  String         @map("display_name")
+  email         String         @unique
+  password_hash String         @map("password_hash")
+  photo_url     String?        @map("photo_url")
+  cover_image   String?        @map("cover_image")
+  bio           String?
+  points        Int            @default(0)
+  level         Int            @default(1)
+  is_pro        Boolean        @default(false) @map("is_pro")
+  city          String?
+  state         String?
+  created_at    DateTime       @default(now()) @map("created_at")
+  updated_at    DateTime       @updatedAt @map("updated_at")
+  settings      UserSettings?
+  posts         Post[]
+  comments      Comment[]
+  achievements  Achievement[]
+  sent_messages     ChatMessage[]  @relation("SentMessages")
+  received_messages ChatMessage[]  @relation("ReceivedMessages")
+  chat_rooms     ChatRoomUser[]
+  notifications  Notification[]
+  followers      UserFollow[]   @relation("UserFollowers")
+  following      UserFollow[]   @relation("UserFollowing")
+  reactions      PostReaction[]
+  mentions       PostMention[]
+  saved_posts    SavedPost[]
+  activities     UserActivity[]
+  reports        ContentReport[]
+
+  @@map("users")
+}
+
+model UserSettings {
+  id                     String   @id @default(uuid())
+  user_id                String   @unique @map("user_id")
+  theme                  String   @default("system")
+  notifications_in_app   Boolean  @default(true) @map("notifications_in_app")
+  notifications_email    Boolean  @default(true) @map("notifications_email")
+  notifications_followers Boolean @default(true) @map("notifications_followers")
+  notifications_mentions Boolean  @default(true) @map("notifications_mentions")
+  notifications_comments Boolean  @default(true) @map("notifications_comments")
+  notifications_reactions Boolean @default(true) @map("notifications_reactions")
+  privacy_profile        String   @default("public") @map("privacy_profile")
+  privacy_mentions       Boolean  @default(true) @map("privacy_mentions")
+  privacy_online_status  Boolean  @default(true) @map("privacy_online_status")
+  appearance_font_size   String   @default("medium") @map("appearance_font_size")
+  language               String   @default("pt-BR")
+  adult_content          Boolean  @default(false) @map("adult_content")
+  violent_content        Boolean  @default(false) @map("violent_content")
+  sensitive_content      Boolean  @default(false) @map("sensitive_content")
+  created_at             DateTime @default(now()) @map("created_at")
+  updated_at             DateTime @updatedAt @map("updated_at")
+  user                   User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("user_settings")
+}
+
+model Post {
+  id          String    @id @default(uuid())
+  user_id     String    @map("user_id")
+  content     String
+  image_url   String?   @map("image_url")
+  is_generated Boolean   @default(false) @map("is_generated")
+  created_at  DateTime  @default(now()) @map("created_at")
+  updated_at  DateTime  @updatedAt @map("updated_at")
+  tags        String[]
+  user        User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  comments    Comment[]
+  reactions   PostReaction[]
+  categories  PostCategory[]
+  hashtags    PostHashtag[]
+  mentions    PostMention[]
+  saved_by    SavedPost[]
+
+  @@map("posts")
+}
+
+model Comment {
+  id        String   @id @default(uuid())
+  post_id   String   @map("post_id")
+  user_id   String   @map("user_id")
+  content   String
+  parent_id String?  @map("parent_id")
+  created_at DateTime @default(now()) @map("created_at")
+  updated_at DateTime @updatedAt @map("updated_at")
+  post      Post     @relation(fields: [post_id], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  parent    Comment? @relation("CommentToComment", fields: [parent_id], references: [id], onDelete: SetNull)
+  replies   Comment[] @relation("CommentToComment")
+
+  @@map("comments")
+}
+
+model Achievement {
+  id          String   @id @default(uuid())
+  title       String
+  description String
+  icon        String?
+  points      Int      @default(0)
+  created_at  DateTime @default(now()) @map("created_at")
+  user_id     String   @map("user_id")
+  earned_at   DateTime @default(now()) @map("earned_at")
+  user        User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("achievements")
+}
+
+model ChatRoom {
+  id           String         @id @default(uuid())
+  name         String?
+  type         String         @default("private")
+  created_at   DateTime       @default(now()) @map("created_at")
+  updated_at   DateTime       @updatedAt @map("updated_at")
+  messages     ChatMessage[]
+  participants ChatRoomUser[]
+
+  @@map("chat_rooms")
+}
+
+model ChatRoomUser {
+  room_id    String    @map("room_id")
+  user_id    String    @map("user_id")
+  joined_at  DateTime  @default(now()) @map("joined_at")
+  left_at    DateTime? @map("left_at")
+  is_admin   Boolean   @default(false) @map("is_admin")
+  room       ChatRoom  @relation(fields: [room_id], references: [id], onDelete: Cascade)
+  user       User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@id([room_id, user_id])
+  @@map("chat_room_users")
+}
+
+model ChatMessage {
+  id          String    @id @default(uuid())
+  room_id     String    @map("room_id")
+  sender_id   String    @map("sender_id")
+  receiver_id String    @map("receiver_id")
+  content     String
+  timestamp   DateTime  @default(now())
+  created_at  DateTime  @default(now()) @map("created_at")
+  updated_at  DateTime  @updatedAt @map("updated_at")
+  is_read     Boolean   @default(false) @map("is_read")
+  sender      User      @relation("SentMessages", fields: [sender_id], references: [id], onDelete: Cascade)
+  receiver    User      @relation("ReceivedMessages", fields: [receiver_id], references: [id], onDelete: Cascade)
+  room        ChatRoom  @relation(fields: [room_id], references: [id], onDelete: Cascade)
+
+  @@map("chat_messages")
+}
+
+model Notification {
+  id          String   @id @default(uuid())
+  user_id     String   @map("user_id")
+  type        String   // "comment", "like", "mention", "follow", etc.
+  content     String
+  is_read     Boolean  @default(false) @map("is_read")
+  related_id  String?  @map("related_id") // ID do post, comentário, etc.
+  sender_id   String?  @map("sender_id")
+  created_at  DateTime @default(now()) @map("created_at")
+  user        User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+model UserFollow {
+  follower_id     String   @map("follower_id")
+  following_id    String   @map("following_id")
+  created_at      DateTime @default(now()) @map("created_at")
+  follower        User     @relation("UserFollowers", fields: [follower_id], references: [id], onDelete: Cascade)
+  following       User     @relation("UserFollowing", fields: [following_id], references: [id], onDelete: Cascade)
+
+  @@id([follower_id, following_id])
+  @@map("user_follows")
+}
+
+model PostReaction {
+  id          String   @id @default(uuid())
+  post_id     String   @map("post_id")
+  user_id     String   @map("user_id")
+  type        String   // "like", "haha", "wow", "sad", "angry"
+  created_at  DateTime @default(now()) @map("created_at")
+  user        User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  post        Post     @relation(fields: [post_id], references: [id], onDelete: Cascade)
+
+  @@unique([post_id, user_id])
+  @@map("post_reactions")
+}
+
+model Category {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  icon        String?
+  created_at  DateTime @default(now()) @map("created_at")
+  posts       PostCategory[]
+
+  @@map("categories")
+}
+
+model PostCategory {
+  post_id     String   @map("post_id")
+  category_id String   @map("category_id")
+  post        Post     @relation(fields: [post_id], references: [id], onDelete: Cascade)
+  category    Category @relation(fields: [category_id], references: [id], onDelete: Cascade)
+
+  @@id([post_id, category_id])
+  @@map("post_categories")
+}
+
+model Hashtag {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  count       Int      @default(1)
+  created_at  DateTime @default(now()) @map("created_at")
+  posts       PostHashtag[]
+
+  @@map("hashtags")
+}
+
+model PostHashtag {
+  post_id     String   @map("post_id")
+  hashtag_id  String   @map("hashtag_id")
+  post        Post     @relation(fields: [post_id], references: [id], onDelete: Cascade)
+  hashtag     Hashtag  @relation(fields: [hashtag_id], references: [id], onDelete: Cascade)
+
+  @@id([post_id, hashtag_id])
+  @@map("post_hashtags")
+}
+
+model PostMention {
+  id          String   @id @default(uuid())
+  post_id     String   @map("post_id")
+  user_id     String   @map("user_id")
+  created_at  DateTime @default(now()) @map("created_at")
+  post        Post     @relation(fields: [post_id], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([post_id, user_id])
+  @@map("post_mentions")
+}
+
+model SavedPost {
+  id          String   @id @default(uuid())
+  user_id     String   @map("user_id")
+  post_id     String   @map("post_id")
+  created_at  DateTime @default(now()) @map("created_at")
+  user        User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  post        Post     @relation(fields: [post_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, post_id])
+  @@map("saved_posts")
+}
+
+model UserActivity {
+  id          String   @id @default(uuid())
+  user_id     String   @map("user_id")
+  type        String   // "post_created", "comment_added", "reaction_added", etc.
+  entity_id   String   @map("entity_id")
+  metadata    Json?
+  created_at  DateTime @default(now()) @map("created_at")
+  user        User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("user_activities")
+}
+
+model ContentReport {
+  id           String   @id @default(uuid())
+  reporter_id  String   @map("reporter_id")
+  content_type String   @map("content_type") // "post", "comment", "user"
+  content_id   String   @map("content_id")
+  reason       String
+  details      String?
+  status       String   @default("pending") // "pending", "reviewed", "actioned", "dismissed"
+  created_at   DateTime @default(now()) @map("created_at")
+  updated_at   DateTime @updatedAt @map("updated_at")
+  reporter     User     @relation(fields: [reporter_id], references: [id], onDelete: Cascade)
+
+  @@map("content_reports")
+} 

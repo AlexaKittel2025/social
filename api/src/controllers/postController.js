@@ -1,4 +1,5 @@
 const db = require('../db');
+const prisma = require('../prisma');
 
 // Obter todos os posts
 exports.getAllPosts = async (req, res) => {
@@ -889,5 +890,557 @@ exports.addJudgement = async (req, res) => {
     return res.status(500).json({ error: 'Erro interno do servidor' });
   } finally {
     client.release();
+  }
+};
+
+// Adicionar ou atualizar reação a um post
+exports.reactToPost = async (req, res) => {
+  try {
+    const { postId } = req.params;
+    const { type } = req.body; // Tipo de reação: "like", "haha", "wow", "sad", "angry"
+    const userId = req.user.id;
+
+    // Verificar se o post existe
+    const post = await prisma.post.findUnique({
+      where: { id: postId },
+      include: { user: true }
+    });
+
+    if (!post) {
+      return res.status(404).json({ message: 'Post não encontrado' });
+    }
+
+    // Verificar se o usuário já reagiu a este post
+    const existingReaction = await prisma.postReaction.findUnique({
+      where: {
+        post_id_user_id: {
+          post_id: postId,
+          user_id: userId
+        }
+      }
+    });
+
+    if (existingReaction) {
+      // Atualizar a reação existente
+      const updatedReaction = await prisma.postReaction.update({
+        where: {
+          post_id_user_id: {
+            post_id: postId,
+            user_id: userId
+          }
+        },
+        data: { type }
+      });
+      
+      return res.status(200).json(updatedReaction);
+    } else {
+      // Criar uma nova reação
+      const newReaction = await prisma.postReaction.create({
+        data: {
+          post_id: postId,
+          user_id: userId,
+          type
+        }
+      });
+
+      // Notificar o autor do post (se não for o próprio usuário)
+      if (post.user_id !== userId) {
+        const notificationController = require('./notificationController');
+        await notificationController.createNotification(
+          post.user_id,
+          'reaction',
+          `${req.user.username} reagiu ao seu post com ${type}`,
+          postId,
+          userId
+        );
+      }
+      
+      return res.status(201).json(newReaction);
+    }
+  } catch (error) {
+    console.error('Erro ao reagir ao post:', error);
+    return res.status(500).json({ message: 'Erro ao reagir ao post' });
+  }
+};
+
+// Remover reação de um post
+exports.removeReaction = async (req, res) => {
+  try {
+    const { postId } = req.params;
+    const userId = req.user.id;
+
+    // Verificar se a reação existe
+    const existingReaction = await prisma.postReaction.findUnique({
+      where: {
+        post_id_user_id: {
+          post_id: postId,
+          user_id: userId
+        }
+      }
+    });
+
+    if (!existingReaction) {
+      return res.status(404).json({ message: 'Reação não encontrada' });
+    }
+
+    // Remover a reação
+    await prisma.postReaction.delete({
+      where: {
+        post_id_user_id: {
+          post_id: postId,
+          user_id: userId
+        }
+      }
+    });
+
+    return res.status(200).json({ message: 'Reação removida com sucesso' });
+  } catch (error) {
+    console.error('Erro ao remover reação:', error);
+    return res.status(500).json({ message: 'Erro ao remover reação' });
+  }
+};
+
+// Obter todas as reações de um post
+exports.getPostReactions = async (req, res) => {
+  try {
+    const { postId } = req.params;
+
+    // Verificar se o post existe
+    const post = await prisma.post.findUnique({
+      where: { id: postId }
+    });
+
+    if (!post) {
+      return res.status(404).json({ message: 'Post não encontrado' });
+    }
+
+    // Obter as reações do post
+    const reactions = await prisma.postReaction.findMany({
+      where: { post_id: postId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            username: true,
+            display_name: true,
+            photo_url: true
+          }
+        }
+      }
+    });
+
+    // Agrupar reações por tipo
+    const reactionsByType = reactions.reduce((acc, reaction) => {
+      if (!acc[reaction.type]) {
+        acc[reaction.type] = [];
+      }
+      acc[reaction.type].push(reaction);
+      return acc;
+    }, {});
+
+    return res.status(200).json({
+      total: reactions.length,
+      byType: reactionsByType
+    });
+  } catch (error) {
+    console.error('Erro ao obter reações do post:', error);
+    return res.status(500).json({ message: 'Erro ao obter reações do post' });
+  }
+};
+
+// Adicionar post a uma categoria
+exports.addPostToCategory = async (req, res) => {
+  try {
+    const { postId, categoryId } = req.params;
+    const userId = req.user.id;
+
+    // Verificar se o post existe e se o usuário é o autor
+    const post = await prisma.post.findUnique({
+      where: { id: postId }
+    });
+
+    if (!post) {
+      return res.status(404).json({ message: 'Post não encontrado' });
+    }
+
+    if (post.user_id !== userId) {
+      return res.status(403).json({ message: 'Você não tem permissão para adicionar este post a uma categoria' });
+    }
+
+    // Verificar se a categoria existe
+    const category = await prisma.category.findUnique({
+      where: { id: categoryId }
+    });
+
+    if (!category) {
+      return res.status(404).json({ message: 'Categoria não encontrada' });
+    }
+
+    // Verificar se o post já está na categoria
+    const existingPostCategory = await prisma.postCategory.findUnique({
+      where: {
+        post_id_category_id: {
+          post_id: postId,
+          category_id: categoryId
+        }
+      }
+    });
+
+    if (existingPostCategory) {
+      return res.status(400).json({ message: 'O post já está nesta categoria' });
+    }
+
+    // Adicionar o post à categoria
+    await prisma.postCategory.create({
+      data: {
+        post_id: postId,
+        category_id: categoryId
+      }
+    });
+
+    return res.status(200).json({ message: 'Post adicionado à categoria com sucesso' });
+  } catch (error) {
+    console.error('Erro ao adicionar post à categoria:', error);
+    return res.status(500).json({ message: 'Erro ao adicionar post à categoria' });
+  }
+};
+
+// Remover post de uma categoria
+exports.removePostFromCategory = async (req, res) => {
+  try {
+    const { postId, categoryId } = req.params;
+    const userId = req.user.id;
+
+    // Verificar se o post existe e se o usuário é o autor
+    const post = await prisma.post.findUnique({
+      where: { id: postId }
+    });
+
+    if (!post) {
+      return res.status(404).json({ message: 'Post não encontrado' });
+    }
+
+    if (post.user_id !== userId) {
+      return res.status(403).json({ message: 'Você não tem permissão para remover este post de uma categoria' });
+    }
+
+    // Verificar se o post está na categoria
+    const existingPostCategory = await prisma.postCategory.findUnique({
+      where: {
+        post_id_category_id: {
+          post_id: postId,
+          category_id: categoryId
+        }
+      }
+    });
+
+    if (!existingPostCategory) {
+      return res.status(400).json({ message: 'O post não está nesta categoria' });
+    }
+
+    // Remover o post da categoria
+    await prisma.postCategory.delete({
+      where: {
+        post_id_category_id: {
+          post_id: postId,
+          category_id: categoryId
+        }
+      }
+    });
+
+    return res.status(200).json({ message: 'Post removido da categoria com sucesso' });
+  } catch (error) {
+    console.error('Erro ao remover post da categoria:', error);
+    return res.status(500).json({ message: 'Erro ao remover post da categoria' });
+  }
+};
+
+// Obter categorias de um post
+exports.getPostCategories = async (req, res) => {
+  try {
+    const { postId } = req.params;
+
+    // Verificar se o post existe
+    const post = await prisma.post.findUnique({
+      where: { id: postId }
+    });
+
+    if (!post) {
+      return res.status(404).json({ message: 'Post não encontrado' });
+    }
+
+    // Obter as categorias do post
+    const postCategories = await prisma.postCategory.findMany({
+      where: { post_id: postId },
+      include: { category: true }
+    });
+
+    return res.status(200).json(postCategories.map(pc => pc.category));
+  } catch (error) {
+    console.error('Erro ao obter categorias do post:', error);
+    return res.status(500).json({ message: 'Erro ao obter categorias do post' });
+  }
+};
+
+// Processar hashtags em um post
+async function processHashtags(postId, content) {
+  try {
+    // Extrair hashtags do conteúdo (formato #exemplo)
+    const hashtagRegex = /#(\w+)/g;
+    const hashtagMatches = content.match(hashtagRegex) || [];
+    const hashtags = hashtagMatches.map(match => match.substring(1)); // Remover o # do início
+
+    // Processar cada hashtag
+    for (const hashtag of hashtags) {
+      // Verificar se a hashtag já existe
+      let existingHashtag = await prisma.hashtag.findUnique({
+        where: { name: hashtag.toLowerCase() }
+      });
+
+      if (existingHashtag) {
+        // Incrementar a contagem da hashtag
+        await prisma.hashtag.update({
+          where: { id: existingHashtag.id },
+          data: { count: existingHashtag.count + 1 }
+        });
+      } else {
+        // Criar nova hashtag
+        existingHashtag = await prisma.hashtag.create({
+          data: {
+            name: hashtag.toLowerCase(),
+            count: 1
+          }
+        });
+      }
+
+      // Associar a hashtag ao post
+      await prisma.postHashtag.create({
+        data: {
+          post_id: postId,
+          hashtag_id: existingHashtag.id
+        }
+      });
+    }
+
+    return hashtags;
+  } catch (error) {
+    console.error('Erro ao processar hashtags:', error);
+    throw error;
+  }
+}
+
+// Processar menções em um post
+async function processMentions(postId, content, authorId) {
+  try {
+    // Extrair menções do conteúdo (formato @username)
+    const mentionRegex = /@(\w+)/g;
+    const mentionMatches = content.match(mentionRegex) || [];
+    const mentions = mentionMatches.map(match => match.substring(1)); // Remover o @ do início
+
+    const notificationController = require('./notificationController');
+    const mentionedUsers = [];
+
+    // Processar cada menção
+    for (const username of mentions) {
+      // Verificar se o usuário mencionado existe
+      const mentionedUser = await prisma.user.findUnique({
+        where: { username: username.toLowerCase() }
+      });
+
+      if (mentionedUser && mentionedUser.id !== authorId) {
+        // Criar uma entrada na tabela de menções
+        await prisma.postMention.create({
+          data: {
+            post_id: postId,
+            user_id: mentionedUser.id
+          }
+        });
+
+        // Notificar o usuário mencionado
+        await notificationController.createNotification(
+          mentionedUser.id,
+          'mention',
+          `Você foi mencionado em um post por ${authorId}`,
+          postId,
+          authorId
+        );
+
+        mentionedUsers.push(mentionedUser);
+      }
+    }
+
+    return mentionedUsers;
+  } catch (error) {
+    console.error('Erro ao processar menções:', error);
+    throw error;
+  }
+}
+
+// Modificar o método createPost para incluir processamento de hashtags e menções
+exports.createPost = async (req, res) => {
+  try {
+    // ... código existente para criar o post ...
+
+    const { content, image_url, is_generated } = req.body;
+    const userId = req.user.id;
+
+    const newPost = await prisma.post.create({
+      data: {
+        user_id: userId,
+        content,
+        image_url,
+        is_generated: is_generated || false,
+        tags: []
+      }
+    });
+
+    // Processar hashtags
+    const hashtags = await processHashtags(newPost.id, content);
+
+    // Processar menções
+    const mentionedUsers = await processMentions(newPost.id, content, userId);
+
+    return res.status(201).json({
+      ...newPost,
+      hashtags,
+      mentions: mentionedUsers.map(user => user.username)
+    });
+  } catch (error) {
+    console.error('Erro ao criar post:', error);
+    return res.status(500).json({ message: 'Erro ao criar post' });
+  }
+};
+
+// Salvar um post (favorito)
+exports.savePost = async (req, res) => {
+  try {
+    const { postId } = req.params;
+    const userId = req.user.id;
+
+    // Verificar se o post existe
+    const post = await prisma.post.findUnique({
+      where: { id: postId }
+    });
+
+    if (!post) {
+      return res.status(404).json({ message: 'Post não encontrado' });
+    }
+
+    // Verificar se o post já está salvo
+    const existingSavedPost = await prisma.savedPost.findUnique({
+      where: {
+        user_id_post_id: {
+          user_id: userId,
+          post_id: postId
+        }
+      }
+    });
+
+    if (existingSavedPost) {
+      return res.status(400).json({ message: 'Post já está salvo' });
+    }
+
+    // Salvar o post
+    await prisma.savedPost.create({
+      data: {
+        user_id: userId,
+        post_id: postId
+      }
+    });
+
+    return res.status(200).json({ message: 'Post salvo com sucesso' });
+  } catch (error) {
+    console.error('Erro ao salvar post:', error);
+    return res.status(500).json({ message: 'Erro ao salvar post' });
+  }
+};
+
+// Remover um post salvo
+exports.unsavePost = async (req, res) => {
+  try {
+    const { postId } = req.params;
+    const userId = req.user.id;
+
+    // Verificar se o post está salvo
+    const savedPost = await prisma.savedPost.findUnique({
+      where: {
+        user_id_post_id: {
+          user_id: userId,
+          post_id: postId
+        }
+      }
+    });
+
+    if (!savedPost) {
+      return res.status(404).json({ message: 'Post não está salvo' });
+    }
+
+    // Remover o post salvo
+    await prisma.savedPost.delete({
+      where: {
+        user_id_post_id: {
+          user_id: userId,
+          post_id: postId
+        }
+      }
+    });
+
+    return res.status(200).json({ message: 'Post removido dos salvos com sucesso' });
+  } catch (error) {
+    console.error('Erro ao remover post dos salvos:', error);
+    return res.status(500).json({ message: 'Erro ao remover post dos salvos' });
+  }
+};
+
+// Obter posts salvos do usuário
+exports.getSavedPosts = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const savedPosts = await prisma.savedPost.findMany({
+      where: { user_id: userId },
+      include: {
+        post: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                username: true,
+                display_name: true,
+                photo_url: true
+              }
+            }
+          }
+        }
+      },
+      orderBy: { created_at: 'desc' }
+    });
+
+    return res.status(200).json(savedPosts.map(savedPost => savedPost.post));
+  } catch (error) {
+    console.error('Erro ao obter posts salvos:', error);
+    return res.status(500).json({ message: 'Erro ao obter posts salvos' });
+  }
+};
+
+// Verificar se um post está salvo pelo usuário
+exports.checkSavedStatus = async (req, res) => {
+  try {
+    const { postId } = req.params;
+    const userId = req.user.id;
+
+    const savedPost = await prisma.savedPost.findUnique({
+      where: {
+        user_id_post_id: {
+          user_id: userId,
+          post_id: postId
+        }
+      }
+    });
+
+    return res.status(200).json({ isSaved: !!savedPost });
+  } catch (error) {
+    console.error('Erro ao verificar status de post salvo:', error);
+    return res.status(500).json({ message: 'Erro ao verificar status de post salvo' });
   }
 }; 

@@ -1,67 +1,57 @@
 const express = require('express');
 const cors = require('cors');
-const config = require('./config');
-const db = require('./db');
-
-// Importar rotas
+const dotenv = require('dotenv');
+const path = require('path');
 const userRoutes = require('./routes/users');
 const postRoutes = require('./routes/posts');
-const storymentRoutes = require('./routes/storyments');
+const chatRoutes = require('./routes/chat');
 const generatorRoutes = require('./routes/generator');
+const storymentsRoutes = require('./routes/storyments');
+
+// Novas rotas
+const notificationRoutes = require('./routes/notifications');
+const followRoutes = require('./routes/follows');
+
+// Carregar variáveis de ambiente
+dotenv.config();
 
 // Inicializar aplicação Express
 const app = express();
+const PORT = process.env.PORT || 3001;
 
-// Configurar middleware
-app.use(cors());
+// Configurar CORS para permitir requisições do frontend
+app.use(cors({
+  origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
+  credentials: true
+}));
+
+// Middleware para processar JSON no corpo das requisições
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
-// Middleware para logs simples
+// Log de requisições
 app.use((req, res, next) => {
   console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
   next();
 });
 
-// Definir rotas da API
+// Rotas da API
 app.use('/api/users', userRoutes);
 app.use('/api/posts', postRoutes);
-app.use('/api/storyments', storymentRoutes);
+app.use('/api/chat', chatRoutes);
 app.use('/api/generator', generatorRoutes);
+app.use('/api/storyments', storymentsRoutes);
 
-// Rota raiz para verificar se o servidor está funcionando
-app.get('/', (req, res) => {
-  res.json({ 
-    message: 'API do Mentei está funcionando!', 
-    version: '1.0.0', 
-    env: config.server.nodeEnv 
-  });
-});
+// Adicionar novas rotas
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/follows', followRoutes);
 
-// Middleware para tratamento de erros
-app.use((err, req, res, next) => {
-  console.error('Erro na aplicação:', err);
-  res.status(500).json({ error: 'Erro interno do servidor' });
-});
-
-// Middleware para rotas não encontradas
-app.use((req, res) => {
-  res.status(404).json({ error: 'Rota não encontrada' });
+// Rota de teste para verificar se a API está funcionando
+app.get('/api/status', (req, res) => {
+  res.json({ status: 'online', message: 'API está funcionando corretamente', timestamp: new Date() });
 });
 
 // Iniciar o servidor
-const PORT = config.server.port;
 app.listen(PORT, () => {
-  console.log(`Servidor rodando na porta ${PORT} em modo ${config.server.nodeEnv}`);
-  console.log(`API disponível em http://localhost:${PORT}`);
+  console.log(`Servidor rodando na porta ${PORT}`);
+  console.log(`API disponível em http://localhost:${PORT}/api`);
 });
-
-// Tratamento de exceções não capturadas
-process.on('uncaughtException', (err) => {
-  console.error('Exceção não capturada:', err);
-  process.exit(1);
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Promessa rejeitada não tratada:', reason);
-}); 
