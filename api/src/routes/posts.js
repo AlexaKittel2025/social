@@ -1,11 +1,11 @@
 const express = require('express');
 const postController = require('../controllers/postController');
-const { authenticateToken } = require('../middleware/authMiddleware');
+const { authenticate } = require('../middleware/authMiddleware');
 
 const router = express.Router();
 
 // Aplicar middleware de autenticação a todas as rotas
-router.use(authenticateToken);
+router.use(authenticate);
 
 // Rotas existentes
 router.get('/', postController.getAllPosts);

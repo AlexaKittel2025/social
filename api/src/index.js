@@ -2,15 +2,16 @@ const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const path = require('path');
+const http = require('http');
+const setupSocketServer = require('./socket');
 const userRoutes = require('./routes/users');
 const postRoutes = require('./routes/posts');
 const chatRoutes = require('./routes/chat');
 const generatorRoutes = require('./routes/generator');
 const storymentsRoutes = require('./routes/storyments');
-
-// Novas rotas
 const notificationRoutes = require('./routes/notifications');
 const followRoutes = require('./routes/follows');
+const statusRoutes = require('./routes/statusRoutes');
 
 // Carregar variáveis de ambiente
 dotenv.config();
@@ -18,6 +19,12 @@ dotenv.config();
 // Inicializar aplicação Express
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+// Criar servidor HTTP
+const server = http.createServer(app);
+
+// Inicializar Socket.IO
+const io = setupSocketServer(server);
 
 // Configurar CORS para permitir requisições do frontend
 app.use(cors({
@@ -34,24 +41,49 @@ app.use((req, res, next) => {
   next();
 });
 
-// Rotas da API
+// Rota de teste raiz
+app.get('/', (req, res) => {
+  res.json({ message: 'Bem-vindo à API Mentei' });
+});
+
+// Rota de teste rápida para status
+app.get('/status', (req, res) => {
+  res.json({ status: 'online', timestamp: new Date() });
+});
+
+// Rotas principais da API
+app.use('/api/status', statusRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/posts', postRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/generator', generatorRoutes);
 app.use('/api/storyments', storymentsRoutes);
-
-// Adicionar novas rotas
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/follows', followRoutes);
 
-// Rota de teste para verificar se a API está funcionando
-app.get('/api/status', (req, res) => {
-  res.json({ status: 'online', message: 'API está funcionando corretamente', timestamp: new Date() });
+// Middleware para lidar com rotas não encontradas
+app.use((req, res, next) => {
+  console.log(`Rota não encontrada: ${req.originalUrl}`);
+  res.status(404).json({
+    success: false,
+    error: 'Rota não encontrada'
+  });
 });
 
-// Iniciar o servidor
-app.listen(PORT, () => {
+// Middleware para lidar com erros
+app.use((err, req, res, next) => {
+  console.error('Erro na API:', err.stack || err);
+  res.status(500).json({
+    success: false,
+    error: 'Erro interno no servidor',
+    message: err.message
+  });
+});
+
+// Iniciar o servidor HTTP
+server.listen(PORT, () => {
   console.log(`Servidor rodando na porta ${PORT}`);
   console.log(`API disponível em http://localhost:${PORT}/api`);
+  console.log(`Status da API em http://localhost:${PORT}/api/status`);
+  console.log(`Socket.IO inicializado e escutando por conexões`);
 });
